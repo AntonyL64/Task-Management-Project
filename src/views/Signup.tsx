@@ -1,9 +1,43 @@
-import { Link } from 'react-router-dom';
+import { useState, type FormEvent } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Clock } from 'lucide-react';
 
 export default function Signup() {
+  const navigate = useNavigate();
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (password !== confirmPassword) {
+      setPasswordError('Passwords do not match. Please try again.');
+      return;
+    }
+
+    setPasswordError('');
+    // Demo-only authentication flag. Do not store real credentials in localStorage.
+    localStorage.setItem('isAuthenticated', 'true');
+    navigate('/tasks', { replace: true });
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
+    <div
+      className="min-h-screen flex items-center justify-center bg-canvas px-4"
+      style={{ animation: 'tempoAuthEnter 220ms ease-out both' }}
+    >
+      <style>{`
+        @keyframes tempoAuthEnter {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .tempo-auth-transition { animation: none !important; }
+        }
+      `}</style>
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-11 h-11 rounded-xl bg-primary-500 flex items-center justify-center mb-3">
@@ -15,51 +49,84 @@ export default function Signup() {
         <h1 className="text-2xl font-semibold text-text text-center">Create your account</h1>
         <p className="text-sm text-muted-500 text-center mt-1 mb-6">Start planning calmer, more focused days.</p>
 
-        <form className="flex flex-col gap-4" onSubmit={(e) => e.preventDefault()}>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-text mb-1.5">Name</label>
+            <label htmlFor="signup-name" className="block text-sm font-medium text-text mb-1.5">Name</label>
             <input
-              id="name"
+              id="signup-name"
+              name="name"
               type="text"
+              autoComplete="name"
+              required
+              value={name}
+              onChange={(event) => setName(event.target.value)}
               placeholder="Enter your name"
               className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
 
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-text mb-1.5">Email</label>
+            <label htmlFor="signup-email" className="block text-sm font-medium text-text mb-1.5">Email</label>
             <input
-              id="email"
+              id="signup-email"
+              name="email"
               type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               placeholder="you@example.com"
               className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-text mb-1.5">Password</label>
+            <label htmlFor="signup-password" className="block text-sm font-medium text-text mb-1.5">Password</label>
             <div className="relative">
               <input
-                id="password"
+                id="signup-password"
+                name="password"
                 type="password"
+                autoComplete="new-password"
+                required
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setPasswordError('');
+                }}
                 placeholder="Create a password"
                 className="w-full px-3.5 py-2.5 pr-10 border border-gray-200 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
-              <Eye className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+              <Eye aria-hidden="true" className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
 
           <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-text mb-1.5">Confirm password</label>
+            <label htmlFor="signup-confirm-password" className="block text-sm font-medium text-text mb-1.5">Confirm password</label>
             <div className="relative">
               <input
-                id="confirmPassword"
+                id="signup-confirm-password"
+                name="confirmPassword"
                 type="password"
+                autoComplete="new-password"
+                required
+                value={confirmPassword}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value);
+                  setPasswordError('');
+                }}
                 placeholder="Confirm your password"
+                aria-invalid={Boolean(passwordError)}
+                aria-describedby={passwordError ? 'signup-password-error' : undefined}
                 className="w-full px-3.5 py-2.5 pr-10 border border-gray-200 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
-              <Eye className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+              <Eye aria-hidden="true" className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
+            {passwordError && (
+              <p id="signup-password-error" role="alert" className="mt-1.5 text-sm text-red-600">
+                {passwordError}
+              </p>
+            )}
           </div>
 
           <button
@@ -78,7 +145,7 @@ export default function Signup() {
 
         <p className="text-sm text-center text-muted-600">
           Already have an account?{' '}
-          <Link to="/login" className="font-medium text-primary-600 hover:text-primary-700">
+          <Link to="/login" className="font-medium text-primary-600 hover:text-primary-700 transition-colors">
             Log in
           </Link>
         </p>

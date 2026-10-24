@@ -1,9 +1,33 @@
-import { Link } from 'react-router-dom';
+import { useState, type FormEvent } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Clock } from 'lucide-react';
 
 export default function Login() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    // Demo-only authentication flag. Do not store real credentials in localStorage.
+    localStorage.setItem('isAuthenticated', 'true');
+    navigate('/tasks', { replace: true });
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
+    <div
+      className="min-h-screen flex items-center justify-center bg-canvas px-4"
+      style={{ animation: 'tempoAuthEnter 220ms ease-out both' }}
+    >
+      <style>{`
+        @keyframes tempoAuthEnter {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .tempo-auth-transition { animation: none !important; }
+        }
+      `}</style>
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-11 h-11 rounded-xl bg-primary-500 flex items-center justify-center mb-3">
@@ -15,12 +39,17 @@ export default function Login() {
         <h1 className="text-2xl font-semibold text-text text-center">Welcome back</h1>
         <p className="text-sm text-muted-500 text-center mt-1 mb-6">Log in to plan and schedule your day.</p>
 
-        <form className="flex flex-col gap-4" onSubmit={(e) => e.preventDefault()}>
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-text mb-1.5">Email</label>
+            <label htmlFor="login-email" className="block text-sm font-medium text-text mb-1.5">Email</label>
             <input
-              id="email"
+              id="login-email"
+              name="email"
               type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
               placeholder="you@example.com"
               className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
@@ -28,19 +57,24 @@ export default function Login() {
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="password" className="block text-sm font-medium text-text">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-medium text-text">Password</label>
             </div>
             <div className="relative">
               <input
-                id="password"
+                id="login-password"
+                name="password"
                 type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
                 placeholder="Enter your password"
                 className="w-full px-3.5 py-2.5 pr-10 border border-gray-200 rounded-lg text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
-              <Eye className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2" />
+              <Eye aria-hidden="true" className="w-4 h-4 text-gray-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
             <div className="flex justify-end mt-2">
-              <Link to="#" className="text-sm font-medium text-primary-600 hover:text-primary-700">
+              <Link to="#" onClick={(event) => event.preventDefault()} className="text-sm font-medium text-primary-600 hover:text-primary-700">
                 Forgot password?
               </Link>
             </div>
@@ -62,7 +96,7 @@ export default function Login() {
 
         <p className="text-sm text-center text-muted-600">
           New to Tempo?{' '}
-          <Link to="/signup" className="font-medium text-primary-600 hover:text-primary-700">
+          <Link to="/signup" className="font-medium text-primary-600 hover:text-primary-700 transition-colors">
             Sign up
           </Link>
         </p>
