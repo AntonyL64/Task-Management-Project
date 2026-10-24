@@ -25,7 +25,9 @@ export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
  * Task lifecycle status.
  * - DONE and CANCELLED tasks must never produce sessions (invariant INV-10).
  */
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'PAUSED' | 'DONE' | 'CANCELLED';
+export type TaskStatus = 
+  | 'NOT_STARTED' | 'IN_PROGRESS' | 'PAUSED' | 'COMPLETED' | 'CANCELLED' // NEW
+  | 'TODO' | 'DONE'; // OLD (deprecated)
 
 /**
  * A task as seen by the Scheduling Core (the A → B contract).
@@ -33,6 +35,9 @@ export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'PAUSED' | 'DONE' | 'CANCELLED
 export interface TaskInput {
   id: string;
   title: string;
+
+  /** Optional description. */
+  description?: string;
 
   /** Original estimate in minutes. Informational; the scheduler ignores it. */
   estimatedMinutes: number;
@@ -129,6 +134,21 @@ export interface Project {
 }
 
 /**
+ * A calendar event, either a work session or an external event (ICS/Google).
+ * The scheduler only produces WorkSession events; the UI merges them with
+ * external events for display.
+ */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  /** ISO 8601 timestamp WITH an offset or "Z", e.g. "2026-09-25T17:00:00Z". */
+  startAt: ISODateString;
+  endAt: ISODateString;
+  /** `true` = the user pinned this session. Rescheduling must keep its start/end unchanged (INV-04). */
+  source?: 'INTERNAL' | 'ICS' | 'GOOGLE';
+}
+
+/**
  * A block of work the scheduler placed on the calendar (an entry of
  * ScheduleResult.plannedSessions[]).
  */
@@ -137,8 +157,10 @@ export interface WorkSession {
   taskId: string;
   /** Denormalised from the task so the calendar can render without a lookup. */
   taskTitle: string;
-  start: ISODateString;
-  end: ISODateString;
+  // start: ISODateString;
+  // end: ISODateString;
+  startAt: ISODateString; // NEW
+  endAt: ISODateString;
   /**
    * `true` = the user pinned this session. Rescheduling must keep its
    * start/end unchanged (INV-04) and it still counts toward the task's work.
