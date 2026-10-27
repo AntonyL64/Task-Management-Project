@@ -117,6 +117,8 @@ export interface WarningMetadata {
 export interface ScheduleWarning {
   code: WarningCode;
   taskId: string;
+  message?: string;
+  taskTitle?: string;
   metadata: WarningMetadata;
 }
 

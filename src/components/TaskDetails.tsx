@@ -37,9 +37,6 @@ export default function TaskDetails({ task, tasks, project, warning, onClose, on
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const prerequisites = task.dependencyIds
-    .map((id) => tasks.find((candidate) => candidate.id === id))
-    .filter((item): item is MockTask => Boolean(item));
   const nextStatus: TaskStatus = task.status === 'DONE' ? 'TODO' : 'DONE';
   const missingMinutes = warning?.metadata.missingMinutes ?? Math.max(0, task.remainingMinutes - (warning?.metadata.scheduledMinutes ?? 0));
 
