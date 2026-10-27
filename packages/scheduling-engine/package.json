@@ -1,0 +1,30 @@
+{
+  "name": "scheduling-engine",
+  "version": "1.0.0",
+  "description": "Deterministic Rule-Based Hybrid Scheduling Engine for Personal Task Manager (HK261-DAGD1-137)",
+  "type": "module",
+  "main": "dist/scheduler.js",
+  "types": "dist/scheduler.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "npx tsx src/demo.ts",
+    "my-test": "npx tsx test-my-schedule.ts"
+  },
+  "keywords": [
+    "scheduler",
+    "scheduling-engine",
+    "task-manager",
+    "dag",
+    "interval-tree"
+  ],
+  "author": "Member B",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,8 +1,9 @@
 import { Play, SkipForward, Pause, RefreshCcw, Settings as SettingsIcon } from 'lucide-react';
-import { mockTasks } from '../lib/mockData';
+import { mockTasks, getProjectById } from '../lib/mockData';
 
 export default function Focus() {
   const currentTask = mockTasks[0];
+  const currentProject = getProjectById(currentTask.projectId);
   const upNextTasks = mockTasks.slice(1, 4);
 
   return (
@@ -39,11 +40,13 @@ export default function Focus() {
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Current Task</h3>
-            <span className={currentTask.project.badgeClass}>
-              {currentTask.project.name}
-            </span>
+            {currentProject && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `${currentProject.color}20`, color: currentProject.color }}>
+                {currentProject.name}
+              </span>
+            )}
           </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4 leading-tight">{currentTask.name}</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4 leading-tight">{currentTask.title}</h2>
           
           <div className="flex items-center gap-4 text-sm text-gray-600 mb-6">
             <div className="flex items-center gap-1.5">
@@ -67,19 +70,24 @@ export default function Focus() {
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 flex-1">
           <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Up Next</h3>
           <div className="space-y-3">
-            {upNextTasks.map(task => (
-              <div key={task.id} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors flex items-center justify-between group cursor-pointer">
-                <div className="flex flex-col gap-1 overflow-hidden pr-4">
-                  <span className="text-sm font-medium text-gray-900 truncate">{task.name}</span>
-                  <span className={task.project.badgeClass}>
-                    {task.project.name}
-                  </span>
+            {upNextTasks.map(task => {
+              const project = getProjectById(task.projectId);
+              return (
+                <div key={task.id} className="p-3 border border-gray-100 rounded-xl hover:bg-gray-50 transition-colors flex items-center justify-between group cursor-pointer">
+                  <div className="flex flex-col gap-1 overflow-hidden pr-4">
+                    <span className="text-sm font-medium text-gray-900 truncate">{task.title}</span>
+                    {project && (
+                      <span className="text-xs font-medium w-fit px-1.5 py-0.5 rounded" style={{ backgroundColor: `${project.color}20`, color: project.color }}>
+                        {project.name}
+                      </span>
+                    )}
+                  </div>
+                  <button className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-400 group-hover:text-indigo-600 group-hover:border-indigo-200 shadow-sm transition-all flex-shrink-0">
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                  </button>
                 </div>
-                <button className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-400 group-hover:text-indigo-600 group-hover:border-indigo-200 shadow-sm transition-all flex-shrink-0">
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
