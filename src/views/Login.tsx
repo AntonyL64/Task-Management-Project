@@ -9,7 +9,8 @@ export default function Login() {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // Demo-only authentication flag. Do not store real credentials in localStorage.
+    // Mock login logic — replace with real API call when the backend is ready.
+    // localStorage.setItem('accessToken', res.data.accessToken);
     localStorage.setItem('isAuthenticated', 'true');
     navigate('/tasks', { replace: true });
   }

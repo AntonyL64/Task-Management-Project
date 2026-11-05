@@ -1,217 +1,587 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
+import type { DatesSetArg, EventClickArg, EventContentArg, EventInput, EventMountArg, FormatterInput } from '@fullcalendar/core';
+import { ChevronLeft, ChevronRight, CheckCircle2, CircleDashed, Loader2, Lock, Sparkles, XCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import type { CalendarEvent, ISODateString, WorkSession } from '../types/domain';
+import { PLANNED_PROGRESS, SESSION_STATUS_LABEL, isSessionStatus } from '../types/sessionProgress';
+import type { SessionProgress, SessionStatus } from '../types/sessionProgress';
+import type { CalendarTimeZone } from '../lib/sessionTime';
+import { getMockProjectForTask, mockCalendarEvents, mockCalendarSessions, mockTaskConstraints } from '../lib/mockCalendar';
+import {
+  DEFAULT_HORIZON_DAYS,
+  DEFAULT_WORKING_HOURS,
+  checkRescheduleResult,
+  mockRunScheduler,
+  sortByStart,
+} from '../lib/mockScheduler';
+import type { TaskConstraint } from '../lib/mockScheduler';
+import SessionDetailModal from '../components/SessionDetailModal';
+import CalendarEventPopup from '../components/CalendarEventPopup';
+import '../styles/calendar.css';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
 }
 
-type BlockType = 'event' | 'session' | 'locked';
+/* -------------------------------------------------------------------------- */
+/* Configuration                                                              */
+/* -------------------------------------------------------------------------- */
 
-type CalendarBlock = {
-  id: string;
-  day: number; // 0 = Mon ... 6 = Sun, matches weekDays index
-  startHour: number; // 24h, may include .5 for half hours
-  endHour: number;
-  title: string;
-  meta: string;
-  type: BlockType;
+/** Demo scenario: the week of Mon 21 Sep 2026, "now" = Tue 22 Sep, 08:00 UTC. */
+const SCENARIO_DATE = '2026-09-22';
+const SCENARIO_NOW = '2026-09-22T08:00:00Z';
+
+const VIEW_OPTIONS = [
+  { type: 'timeGridWeek', label: 'Week', unit: 'week' },
+  { type: 'timeGridDay', label: 'Day', unit: 'day' },
+  { type: 'dayGridMonth', label: 'Month', unit: 'month' },
+] as const;
+
+type ViewType = (typeof VIEW_OPTIONS)[number]['type'];
+
+function isViewType(value: string): value is ViewType {
+  return VIEW_OPTIONS.some((option) => option.type === value);
+}
+
+/**
+ * Working hours (Mon–Fri, 09:00–17:00 UTC): shades the time outside them AND is what
+ * the scheduler plans inside, so the two can never disagree. Should come from the
+ * user's Working Hours settings once those are stored.
+ */
+const BUSINESS_HOURS = DEFAULT_WORKING_HOURS;
+
+/** Transient message under the status text after a reschedule. */
+interface Notice {
+  tone: 'success' | 'warning' | 'error';
+  text: string;
+}
+
+const NOTICE_CLASS: Record<Notice['tone'], string> = {
+  success: 'text-success-700',
+  warning: 'text-warning-700',
+  error: 'text-danger-600',
 };
 
-const weekDays = [
-  { label: 'MON', date: 21 },
-  { label: 'TUE', date: 22 },
-  { label: 'WED', date: 23 },
-  { label: 'THU', date: 24 },
-  { label: 'FRI', date: 25 },
-  { label: 'SAT', date: 26 },
-  { label: 'SUN', date: 27 },
-];
+const NOTICE_VISIBLE_MS = 8000;
 
-const TODAY_INDEX = 1; // Tuesday, for this mock week
-const CURRENT_TIME_HOUR = 13.5; // 1:30 PM
+/* ---- Text formatters -------------------------------------------------------
+ * Function formatters, because the native Intl output differs by environment
+ * (e.g. { weekday: 'short', day: 'numeric' } can come out as "21 Mon") and
+ * FullCalendar lower-cases the meridiem ("7am"). The wireframe uses "Mon 21",
+ * "7 AM" and "9:00–10:00 AM". Values are in the calendar's own time zone.
+ */
+type FormatterFn = Extract<FormatterInput, (...args: never[]) => string>;
+type FormatterArg = Parameters<FormatterFn>[0];
 
-const HOUR_START = 7;
-const HOUR_END = 22;
-const HOUR_HEIGHT = 64; // px per hour row
+const SHORT_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const LONG_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
 
-const weekBlocks: CalendarBlock[] = [
-  { id: 'b1', day: 0, startHour: 8.5, endHour: 9.5, title: 'Team Meeting', meta: '8:30–9:30 AM', type: 'event' },
-  { id: 'b2', day: 0, startHour: 10.25, endHour: 11.75, title: 'Write Report — Session 1/3', meta: '10:15–11:45 AM', type: 'session' },
-  { id: 'b3', day: 1, startHour: 9, endHour: 10, title: 'Project Sync', meta: '9:00–10:00 AM', type: 'event' },
-  { id: 'b4', day: 1, startHour: 11.5, endHour: 13, title: 'Write Report — Session 2/3', meta: '11:30 AM–1:00 PM', type: 'session' },
-  { id: 'b5', day: 1, startHour: 14.5, endHour: 15.5, title: 'Design Review', meta: '2:30–3:30 PM', type: 'event' },
-  { id: 'b6', day: 2, startHour: 9.5, endHour: 11, title: 'Research competitors — Session 1/2', meta: '9:30–11:00 AM', type: 'locked' },
-  { id: 'b7', day: 2, startHour: 13.5, endHour: 14.5, title: 'Client Check-in', meta: '1:30–2:30 PM', type: 'event' },
-  { id: 'b8', day: 2, startHour: 16, endHour: 17.5, title: 'Write Report — Session 3/3', meta: '4:00–5:30 PM', type: 'session' },
-];
+type Clock = FormatterArg['date'];
 
-const blockStyles: Record<BlockType, string> = {
-  event: 'bg-success-100 border border-success-500/40 text-success-700',
-  session: 'bg-primary-50 border border-primary-200 text-primary-700',
-  locked: 'bg-primary-50 border border-primary-200 text-primary-700',
+/** 7 -> "7", 13:30 -> "1:30"; minutes are dropped when 0 unless `alwaysMinutes`. */
+function formatClock(time: Pick<Clock, 'hour' | 'minute'>, alwaysMinutes: boolean, withMeridiem: boolean): string {
+  const hour12 = time.hour % 12 === 0 ? 12 : time.hour % 12;
+  const minutes = time.minute === 0 && !alwaysMinutes ? '' : `:${String(time.minute).padStart(2, '0')}`;
+  return `${hour12}${minutes}${withMeridiem ? (time.hour < 12 ? ' AM' : ' PM') : ''}`;
+}
+
+/** "Mon 21" */
+const formatWeekHeader: FormatterFn = (arg) => `${SHORT_WEEKDAYS[arg.date.marker.getUTCDay()]} ${arg.date.day}`;
+
+/** "Tuesday 22" */
+const formatDayHeader: FormatterFn = (arg) => `${LONG_WEEKDAYS[arg.date.marker.getUTCDay()]} ${arg.date.day}`;
+
+/** Time-axis label: "7 AM", "7:30 AM". */
+const formatSlotLabel: FormatterFn = (arg) => formatClock(arg.date, false, true);
+
+/** Event time: "9:00–10:00 AM", "11:30 AM–1:00 PM", or just "9:00 AM" when there is no end. */
+const formatEventTime: FormatterFn = (arg) => {
+  if (!arg.end) return formatClock(arg.start, true, true);
+  const sameHalfOfDay = (arg.start.hour < 12) === (arg.end.hour < 12);
+  return `${formatClock(arg.start, true, !sameHalfOfDay)}–${formatClock(arg.end, true, true)}`;
 };
 
-function Legend() {
-  return (
-    <div className="flex items-center gap-4 text-xs text-muted-500">
-      <span className="flex items-center gap-1.5">
-        <span className="w-2.5 h-2.5 rounded-sm bg-success-500" /> Event
-      </span>
-      <span className="flex items-center gap-1.5">
-        <span className="w-2.5 h-2.5 rounded-sm border border-primary-500 bg-primary-50" /> Work Session
-      </span>
-      {/* <span className="flex items-center gap-1.5">
-        <span className="w-2.5 h-2.5 rounded-sm border border-warning-500" /> Locked
-      </span> */}
-    </div>
-  );
+/* -------------------------------------------------------------------------- */
+/* Domain -> FullCalendar                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** What we attach to each FullCalendar event (read back in click / render handlers). */
+interface TempoEventProps {
+  kind: 'session' | 'event';
+  isLocked: boolean;
+  /** WorkSession id (sessions) or CalendarEvent id (fixed events). */
+  recordId: string | null;
+  status: SessionStatus;
 }
 
-function HourGutter() {
-  const hours = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
-  return (
-    <div className="flex flex-col text-right pr-3" style={{ paddingTop: HOUR_HEIGHT / 2 }}>
-      {hours.map((h) => (
-        <div key={h} style={{ height: HOUR_HEIGHT }} className="text-xs text-muted-500 -mt-2">
-          {h === 12 ? '12 PM' : h > 12 ? `${h - 12} PM` : `${h} AM`}
-        </div>
-      ))}
-    </div>
-  );
+/** FullCalendar types `extendedProps` loosely; narrow it once, here. */
+function readEventProps(extended: Readonly<Record<string, unknown>>): TempoEventProps {
+  return {
+    kind: extended.kind === 'session' ? 'session' : 'event',
+    isLocked: extended.isLocked === true,
+    recordId: typeof extended.recordId === 'string' ? extended.recordId : null,
+    status: isSessionStatus(extended.status) ? extended.status : 'PLANNED',
+  };
 }
 
-function Block({ block }: { block: CalendarBlock }) {
-  const top = (block.startHour - HOUR_START) * HOUR_HEIGHT;
-  const height = (block.endHour - block.startHour) * HOUR_HEIGHT;
-  return (
-    <div
-      className={cn('absolute left-1 right-1 rounded-md px-2 py-1 overflow-hidden text-xs leading-tight', blockStyles[block.type])}
-      style={{ top, height }}
-    >
-      <div className="flex items-center gap-1 font-medium truncate">
-        {block.type === 'locked' && <span aria-hidden="true">🔒</span>}
-        <span className="truncate">{block.title}</span>
+const STATUS_CLASS: Record<SessionStatus, string | null> = {
+  PLANNED: null,
+  COMPLETED: 'tempo-event--completed',
+  PARTIAL: 'tempo-event--partial',
+  MISSED: 'tempo-event--missed',
+};
+
+function toEventInputs(
+  sessions: readonly WorkSession[],
+  events: readonly CalendarEvent[],
+  progressById: Readonly<Record<string, SessionProgress>>
+): EventInput[] {
+  const sessionInputs = sessions.map((session): EventInput => {
+    const status = progressById[session.id]?.status ?? PLANNED_PROGRESS.status;
+    const statusClass = STATUS_CLASS[status];
+    return {
+      id: `session-${session.id}`,
+      title: session.taskTitle,
+      start: session.startAt,
+      end: session.endAt,
+      classNames: [
+        'tempo-event--session',
+        ...(session.isLocked ? ['tempo-event--locked'] : []),
+        ...(statusClass ? [statusClass] : []),
+      ],
+      extendedProps: { kind: 'session', isLocked: session.isLocked, recordId: session.id, status, taskId: session.taskId },
+    };
+  });
+
+  const eventInputs = events.map(
+    (event): EventInput => ({
+      id: `event-${event.id}`,
+      title: event.title,
+      start: event.startAt,
+      end: event.endAt,
+      classNames: ['tempo-event--event'],
+      extendedProps: { kind: 'event', isLocked: false, recordId: event.id, status: 'PLANNED' },
+    })
+  );
+
+  return [...eventInputs, ...sessionInputs];
+}
+
+function LockIcon() {
+  return <Lock className="w-3 h-3 flex-shrink-0" role="img" aria-label="Locked" />;
+}
+
+/** Small marker for sessions that already have an outcome. */
+function StatusIcon({ status }: { status: SessionStatus }) {
+  const label = SESSION_STATUS_LABEL[status];
+  switch (status) {
+    case 'COMPLETED':
+      return <CheckCircle2 className="w-3 h-3 flex-shrink-0" role="img" aria-label={label} />;
+    case 'PARTIAL':
+      return <CircleDashed className="w-3 h-3 flex-shrink-0" role="img" aria-label={label} />;
+    case 'MISSED':
+      return <XCircle className="w-3 h-3 flex-shrink-0" role="img" aria-label={label} />;
+    case 'PLANNED':
+      return null;
+  }
+}
+
+function renderEventContent(arg: EventContentArg) {
+  const { isLocked, status } = readEventProps(arg.event.extendedProps);
+  const titleClass = status === 'MISSED' ? 'line-through' : '';
+
+  // Month cells are one line tall: time + title only.
+  if (arg.view.type === 'dayGridMonth') {
+    return (
+      <div className="flex items-center gap-1 min-w-0 px-1.5 text-xs">
+        {isLocked && <LockIcon />}
+        <StatusIcon status={status} />
+        {arg.timeText && <span className="opacity-70 flex-shrink-0">{arg.timeText}</span>}
+        <span className={`font-medium truncate ${titleClass}`}>{arg.event.title}</span>
       </div>
-      <div className="text-[11px] opacity-80 truncate">{block.meta}</div>
+    );
+  }
+
+  return (
+    <div className="px-1.5 py-0.5 leading-tight overflow-hidden">
+      <div className="flex items-center gap-1 text-xs font-semibold">
+        {isLocked && <LockIcon />}
+        <StatusIcon status={status} />
+        <span className={`truncate ${titleClass}`}>{arg.event.title}</span>
+      </div>
+      {arg.timeText && <div className="text-[11px] opacity-80 truncate">{arg.timeText}</div>}
     </div>
   );
 }
 
-function WeekGrid() {
-  const hours = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
-  const gridHeight = hours.length * HOUR_HEIGHT;
-  const nowTop = (CURRENT_TIME_HOUR - HOUR_START) * HOUR_HEIGHT;
+/** Tags each rendered session element with `data-session-id` (a stable hook for end-to-end tests). */
+function tagSessionElement(arg: EventMountArg) {
+  const { kind, recordId } = readEventProps(arg.event.extendedProps);
+  if (kind === 'session' && recordId) arg.el.dataset.sessionId = recordId;
+}
+
+function withoutKey<T>(record: Readonly<Record<string, T>>, key: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(record).filter(([entryKey]) => entryKey !== key));
+}
+
+/* -------------------------------------------------------------------------- */
+/* View                                                                       */
+/* -------------------------------------------------------------------------- */
+
+export interface CalendarProps {
+  /**
+   * Work sessions to start from (ScheduleResult.plannedSessions). The Calendar
+   * keeps its own editable copy: lock / delete / progress changes are applied to it.
+   */
+  initialSessions?: readonly WorkSession[];
+  /** Fixed events (meetings, imported calendars). Read-only. */
+  events?: readonly CalendarEvent[];
+  /** Date to open on. Default: the demo scenario. `null` = today. */
+  initialDate?: ISODateString | null;
+  /** Fixed "current time" for the now-indicator and today highlight. Default: the demo scenario. `null` = the real clock. */
+  now?: ISODateString | null;
+  /**
+   * 'UTC' shows times exactly as stored; 'local' uses the browser's time zone.
+   * (Showing an arbitrary user time zone, e.g. America/New_York, needs
+   * FullCalendar's luxon or moment-timezone plugin.)
+   */
+  timeZone?: CalendarTimeZone;
+  /** Per-task limits the (mock) scheduler honours when rescheduling, keyed by taskId. */
+  taskConstraints?: Readonly<Record<string, TaskConstraint>>;
+}
+
+/** What is open in a dialog right now. */
+type Selection = { kind: 'session'; id: string } | { kind: 'event'; id: string } | null;
+
+export default function Calendar({
+  initialSessions = mockCalendarSessions,
+  events = mockCalendarEvents,
+  initialDate = SCENARIO_DATE,
+  now = SCENARIO_NOW,
+  timeZone = 'UTC',
+  taskConstraints = mockTaskConstraints,
+}: CalendarProps) {
+  const calendarRef = useRef<FullCalendar>(null);
+  const regionRef = useRef<HTMLDivElement>(null);
+  const [title, setTitle] = useState('');
+  const [viewType, setViewType] = useState<ViewType>('timeGridWeek');
+
+  const [sessions, setSessions] = useState<WorkSession[]>(() => [...initialSessions]);
+  const [progressById, setProgressById] = useState<Record<string, SessionProgress>>({});
+  const [selection, setSelection] = useState<Selection>(null);
+
+  const [isRescheduling, setIsRescheduling] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  // Identifies the reschedule run that is allowed to apply its result; unmounting invalidates it.
+  const runIdRef = useRef(0);
+  useEffect(
+    () => () => {
+      runIdRef.current += 1;
+    },
+    []
+  );
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), NOTICE_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  // Sessions the scheduler must leave alone: pinned by the user (INV-04), or already
+  // worked on / missed (moving a finished session to another day would be wrong).
+  const isFixed = (session: WorkSession) => session.isLocked || progressById[session.id] !== undefined;
+  const fixedSessions = sessions.filter(isFixed);
+  const freeSessions = sessions.filter((session) => !isFixed(session));
+  const lockedCount = sessions.filter((session) => session.isLocked).length;
+  const statusText = `${sessions.length} Total Session${sessions.length === 1 ? '' : 's'} (${lockedCount} Locked)`;
+
+  const eventInputs = useMemo(() => toEventInputs(sessions, events, progressById), [sessions, events, progressById]);
+  const currentUnit = VIEW_OPTIONS.find((option) => option.type === viewType)?.unit ?? 'week';
+
+  const selectedSession = selection?.kind === 'session' ? sessions.find((s) => s.id === selection.id) : undefined;
+  const selectedEvent = selection?.kind === 'event' ? events.find((e) => e.id === selection.id) : undefined;
+
+  // Fires on first render and after every navigation / view change.
+  const handleDatesSet = (arg: DatesSetArg) => {
+    setTitle(arg.view.title);
+    if (isViewType(arg.view.type)) setViewType(arg.view.type);
+  };
+
+  const handleEventClick = (arg: EventClickArg) => {
+    arg.jsEvent.preventDefault();
+    // While the scheduler runs, sessions must not change underneath it.
+    if (isRescheduling) return;
+    const { kind, recordId } = readEventProps(arg.event.extendedProps);
+    if (!recordId) return;
+    setSelection({ kind, id: recordId });
+  };
+
+  /* ------------------------------ session edits ------------------------------ */
+
+  const handleLockChange = (sessionId: string, isLocked: boolean) =>
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, isLocked } : s)));
+
+  // PLANNED means "nothing recorded", so it is stored as the absence of an entry.
+  const handleProgressSave = (sessionId: string, progress: SessionProgress) =>
+    setProgressById((prev) =>
+      progress.status === 'PLANNED' ? withoutKey(prev, sessionId) : { ...prev, [sessionId]: progress }
+    );
+
+  const handleDeleteSession = (sessionId: string) => {
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    setProgressById((prev) => withoutKey(prev, sessionId));
+  };
+
+  const closeDialog = () => setSelection(null);
+
+  /* ------------------------------- reschedule ------------------------------- */
+
+  const handleReschedule = async () => {
+    if (isRescheduling || freeSessions.length === 0) return;
+
+    // Everything below works on this snapshot; interaction is blocked until the run ends.
+    const fixed = fixedSessions;
+    const free = freeSessions;
+    const runId = ++runIdRef.current;
+    setIsRescheduling(true);
+    setNotice(null);
+
+    try {
+      const result = await mockRunScheduler({
+        now: now ?? new Date().toISOString(),
+        sessions: free,
+        lockedSessions: fixed, // INV-04: returned unchanged and treated as busy time
+        busyEvents: events,
+        workingHours: BUSINESS_HOURS,
+        taskConstraints,
+      });
+      if (runId !== runIdRef.current) return; // unmounted
+
+      // Never trust a result blindly: verify INV-04, overlaps and lost sessions BEFORE applying it.
+      const violations = checkRescheduleResult({ fixed, free, busyEvents: events, result });
+      if (violations.length > 0) {
+        const more = violations.length > 1 ? ` (+${violations.length - 1} more)` : '';
+        setNotice({ tone: 'error', text: `Reschedule rejected, nothing was changed: ${violations[0].message}${more}.` });
+        return;
+      }
+
+      // Locked/finished sessions come from OUR state, not from the result: they cannot be altered by it.
+      const fixedIds = new Set(fixed.map((session) => session.id));
+      const placed = result.plannedSessions.filter((session) => !fixedIds.has(session.id));
+      setSessions(sortByStart([...fixed, ...placed]));
+
+      const before = new Map(free.map((session) => [session.id, session]));
+      const moved = placed.filter((session) => {
+        const original = before.get(session.id);
+        return original !== undefined && Date.parse(original.startAt) !== Date.parse(session.startAt);
+      }).length;
+      const unplaced = result.unscheduledSessions.length;
+      const plural = free.length === 1 ? '' : 's';
+      setNotice({
+        tone: unplaced > 0 ? 'warning' : 'success',
+        text:
+          `${moved} of ${free.length} free session${plural} moved · ${lockedCount} locked kept in place` +
+          (unplaced > 0 ? ` · ${unplaced} could not be placed in the next ${DEFAULT_HORIZON_DAYS} days and ${unplaced === 1 ? 'was' : 'were'} removed` : ''),
+      });
+    } catch {
+      if (runId === runIdRef.current) {
+        setNotice({ tone: 'error', text: 'Rescheduling failed. Your calendar was not changed.' });
+      }
+    } finally {
+      if (runId === runIdRef.current) setIsRescheduling(false);
+    }
+  };
+
+  const navButton =
+    'p-1.5 rounded-lg border border-gray-200 bg-white text-muted-600 hover:bg-gray-50 hover:text-text transition-colors ' +
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500';
 
   return (
-    <div className="flex">
-      <div className="w-16 flex-shrink-0">
-        <div className="h-10" />
-        <HourGutter />
-      </div>
-      <div className="flex-1 grid grid-cols-7 border-l border-gray-200">
-        {weekDays.map((day, dayIdx) => {
-          const isToday = dayIdx === TODAY_INDEX;
-          const isWeekend = dayIdx >= 5;
-          return (
-            <div
-              key={day.label}
-              className={cn(
-                'relative border-r border-gray-200',
-                isToday ? 'bg-primary-50/40' : isWeekend ? 'bg-gray-50/60' : 'bg-white'
-              )}
+    <div className="flex flex-col h-full min-h-[600px] bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold text-text min-w-[12rem]" aria-live="polite">
+            {title}
+          </h2>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => calendarRef.current?.getApi().prev()}
+              aria-label={`Previous ${currentUnit}`}
+              className={navButton}
             >
-              <div className={cn('h-10 flex flex-col items-center justify-center border-b border-gray-200', isToday && 'bg-primary-50')}>
-                <span className="text-[11px] text-muted-500 tracking-wide">{day.label}</span>
-                <span className={cn('text-sm', isToday ? 'font-semibold text-primary-700' : 'text-text')}>{day.date}</span>
-              </div>
-              <div className="relative" style={{ height: gridHeight }}>
-                {hours.map((h, i) => (
-                  <div key={h} className="border-b border-gray-100" style={{ height: HOUR_HEIGHT, position: 'absolute', top: i * HOUR_HEIGHT, left: 0, right: 0 }} />
-                ))}
-                {isToday && (
-                  <div className="absolute left-0 right-0 flex items-center z-10" style={{ top: nowTop }}>
-                    <span className="w-2 h-2 rounded-full bg-danger-500 -ml-1" />
-                    <span className="flex-1 h-px bg-danger-500" />
-                  </div>
-                )}
-                {weekBlocks.filter((b) => b.day === dayIdx).map((b) => (
-                  <Block key={b.id} block={b} />
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-const dayBlocks: CalendarBlock[] = [
-  { id: 'd1', day: 0, startHour: 8.5, endHour: 9.25, title: 'Team stand-up', meta: '8:30–9:15 AM · Product team', type: 'event' },
-  { id: 'd2', day: 0, startHour: 9.5, endHour: 11, title: 'Finalize Q4 planning notes — Part 1 of 2', meta: '9:30–11:00 AM · Focused work', type: 'session' },
-  { id: 'd3', day: 0, startHour: 11.5, endHour: 12.5, title: 'Quarterly roadmap deep work', meta: '11:30 AM–12:30 PM · Protected session', type: 'locked' },
-  { id: 'd4', day: 0, startHour: 14, endHour: 15, title: 'Client check-in', meta: '2:00–3:00 PM · Northstar account', type: 'event' },
-  { id: 'd5', day: 0, startHour: 15.5, endHour: 17, title: 'Finalize Q4 planning notes — Part 2 of 2', meta: '3:30–5:00 PM · Focused work', type: 'session' },
-];
-
-function DayGrid() {
-  const hours = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
-  const gridHeight = hours.length * HOUR_HEIGHT;
-  const nowTop = (CURRENT_TIME_HOUR - HOUR_START) * HOUR_HEIGHT;
-
-  return (
-    <div className="flex">
-      <div className="w-16 flex-shrink-0">
-        <div className="h-10" />
-        <HourGutter />
-      </div>
-      <div className="flex-1 border-l border-gray-200">
-        <div className="h-10 flex items-center px-3 border-b border-gray-200 bg-primary-50/40">
-          <span className="text-sm font-semibold text-primary-700">FRIDAY · SEPTEMBER 25</span>
-        </div>
-        <div className="relative bg-primary-50/10" style={{ height: gridHeight }}>
-          {hours.map((h, i) => (
-            <div key={h} className="border-b border-gray-100" style={{ height: HOUR_HEIGHT, position: 'absolute', top: i * HOUR_HEIGHT, left: 0, right: 0 }} />
-          ))}
-          <div className="absolute left-0 right-0 flex items-center z-10" style={{ top: nowTop }}>
-            <span className="w-2 h-2 rounded-full bg-danger-500 -ml-1" />
-            <span className="flex-1 h-px bg-danger-500" />
-            <span className="text-[11px] bg-danger-500 text-white px-1.5 py-0.5 rounded -mt-2 mr-2">1:32 PM</span>
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => calendarRef.current?.getApi().next()}
+              aria-label={`Next ${currentUnit}`}
+              className={navButton}
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
-          {dayBlocks.map((b) => (
-            <Block key={b.id} block={b} />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function Calendar() {
-  const [view, setView] = useState<'day' | 'week'>('week');
-
-  return (
-    <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-        <div className="flex items-center bg-gray-100 p-1 rounded-lg">
           <button
-            onClick={() => setView('day')}
-            className={cn('px-3 py-1.5 text-sm font-medium rounded-md transition-colors', view === 'day' ? 'bg-white text-text shadow-sm' : 'text-muted-500 hover:text-text')}
+            type="button"
+            onClick={() => calendarRef.current?.getApi().today()}
+            className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm font-medium text-muted-600 hover:bg-gray-50 hover:text-text transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           >
-            Day
-          </button>
-          <button
-            onClick={() => setView('week')}
-            className={cn('px-3 py-1.5 text-sm font-medium rounded-md transition-colors', view === 'week' ? 'bg-white text-text shadow-sm' : 'text-muted-500 hover:text-text')}
-          >
-            Week
+            Today
           </button>
         </div>
-        <Legend />
+
+        <div role="group" aria-label="Calendar view" className="inline-flex items-center bg-gray-100 p-1 rounded-lg">
+          {VIEW_OPTIONS.map((option) => {
+            const active = viewType === option.type;
+            return (
+              <button
+                key={option.type}
+                type="button"
+                aria-pressed={active}
+                onClick={() => calendarRef.current?.getApi().changeView(option.type)}
+                className={cn(
+                  'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
+                  active ? 'bg-white text-text shadow-sm' : 'text-muted-500 hover:text-text'
+                )}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-auto">{view === 'week' ? <WeekGrid /> : <DayGrid />}</div>
+      <div className="px-4 py-2.5 border-b border-gray-200 bg-gray-50/60 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 min-w-0">
+          <p className="flex items-center gap-2 text-sm font-medium text-text">
+            <Lock className="w-4 h-4 text-primary-600" aria-hidden="true" />
+            {statusText}
+          </p>
+          <div aria-live="polite" className="min-w-0">
+            {notice && <p className={cn('text-xs', NOTICE_CLASS[notice.tone])}>{notice.text}</p>}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleReschedule}
+          disabled={isRescheduling || freeSessions.length === 0}
+          aria-busy={isRescheduling}
+          title={
+            freeSessions.length === 0
+              ? 'Every session is locked or already has an outcome'
+              : 'Re-plan all unlocked sessions around the locked ones'
+          }
+          className={cn(
+            'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-violet-600 text-white text-sm font-medium shadow-sm transition-colors',
+            'hover:bg-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2',
+            'disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-violet-600'
+          )}
+        >
+          {isRescheduling ? (
+            <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          ) : (
+            <Sparkles className="w-4 h-4" aria-hidden="true" />
+          )}
+          {isRescheduling ? 'Rescheduling...' : 'Reschedule Free Sessions'}
+        </button>
+      </div>
+
+      <div
+        ref={regionRef}
+        role="region"
+        aria-label="Calendar"
+        aria-busy={isRescheduling}
+        // focusable by script only: where focus goes if the session a dialog was opened from no longer exists
+        tabIndex={-1}
+        className={cn(
+          'tempo-calendar flex-1 min-h-0 outline-none transition-opacity',
+          isRescheduling && 'pointer-events-none opacity-60'
+        )}
+      >
+        <FullCalendar
+          ref={calendarRef}
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          initialView="timeGridWeek"
+          initialDate={initialDate ?? undefined}
+          now={now ?? undefined}
+          timeZone={timeZone}
+          // We render our own toolbar above, driven through the calendar API.
+          headerToolbar={false}
+          titleFormat={{ year: 'numeric', month: 'long' }}
+          firstDay={1}
+          height="100%"
+          expandRows
+          // Time grid
+          slotDuration="00:30:00"
+          slotMinTime="07:00:00"
+          slotMaxTime="22:00:00"
+          scrollTime="08:00:00"
+          slotLabelFormat={formatSlotLabel}
+          eventTimeFormat={formatEventTime}
+          nowIndicator
+          allDaySlot={false}
+          businessHours={BUSINESS_HOURS}
+          // Month grid
+          fixedWeekCount={false}
+          dayMaxEvents={3}
+          navLinks
+          views={{
+            timeGridWeek: { dayHeaderFormat: formatWeekHeader },
+            timeGridDay: { dayHeaderFormat: formatDayHeader },
+            dayGridMonth: { dayHeaderFormat: { weekday: 'short' }, eventDisplay: 'block' },
+          }}
+          // Events
+          events={eventInputs}
+          eventContent={renderEventContent}
+          eventMinHeight={22}
+          // Click / keyboard (Enter, Space) on an event opens its dialog.
+          eventInteractive
+          eventClick={handleEventClick}
+          eventDidMount={tagSessionElement}
+          datesSet={handleDatesSet}
+        />
+      </div>
+
+      <div className="px-4 py-2.5 border-t border-gray-200 flex items-center gap-4 text-xs text-muted-500">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm bg-success-500" aria-hidden="true" /> Event
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm border border-primary-500 bg-primary-50" aria-hidden="true" /> Work Session
+        </span>
+        <span className="flex items-center gap-1.5">
+          <Lock className="w-3 h-3 text-primary-600" aria-hidden="true" /> Locked
+        </span>
+      </div>
+
+      {selectedSession && (
+        <SessionDetailModal
+          session={selectedSession}
+          project={getMockProjectForTask(selectedSession.taskId)}
+          progress={progressById[selectedSession.id] ?? PLANNED_PROGRESS}
+          timeZone={timeZone}
+          onClose={closeDialog}
+          onLockChange={handleLockChange}
+          onProgressSave={handleProgressSave}
+          onDelete={handleDeleteSession}
+          getFallbackFocus={() => regionRef.current}
+        />
+      )}
+
+      {selectedEvent && (
+        <CalendarEventPopup
+          event={selectedEvent}
+          timeZone={timeZone}
+          onClose={closeDialog}
+          getFallbackFocus={() => regionRef.current}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,172 @@
+/*
+ * Tempo theme for FullCalendar.
+ *
+ * Everything is scoped under `.tempo-calendar .fc`: FullCalendar declares its own
+ * --fc-* variables on `.fc`, so the overrides must target `.fc` (not just an
+ * ancestor) and need the extra specificity to beat the CSS FullCalendar injects
+ * at runtime. Colour values use the design tokens, with the hex as a fallback.
+ */
+
+.tempo-calendar {
+  height: 100%;
+}
+
+.tempo-calendar .fc {
+  --fc-border-color: #e5e7eb;
+  --fc-page-bg-color: #ffffff;
+  --fc-neutral-bg-color: #f9fafb;
+  --fc-neutral-text-color: var(--color-muted-500, #667085);
+  --fc-today-bg-color: rgb(91 91 214 / 0.07); /* primary-500 @ 7% */
+  --fc-now-indicator-color: var(--color-danger-500, #dc5c5c);
+  --fc-non-business-color: rgb(243 244 246 / 0.6); /* outside working hours */
+  --fc-highlight-color: rgb(91 91 214 / 0.14);
+  --fc-small-font-size: 0.75em;
+
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--color-text, #182230);
+}
+
+/* ---- Grid chrome ---------------------------------------------------------- */
+
+/* The rounded card around the calendar already draws the outer border. */
+.tempo-calendar .fc .fc-scrollgrid {
+  border: 0;
+}
+
+.tempo-calendar .fc .fc-col-header-cell {
+  background: #f9fafb;
+}
+
+.tempo-calendar .fc .fc-col-header-cell-cushion {
+  padding: 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted-500, #667085);
+}
+
+.tempo-calendar .fc .fc-day-today .fc-col-header-cell-cushion {
+  color: var(--color-primary-700, #3d3da6);
+}
+
+.tempo-calendar .fc .fc-timegrid-slot {
+  height: 1.75rem; /* one 30-minute row */
+}
+
+.tempo-calendar .fc .fc-timegrid-slot-minor {
+  border-top-style: dotted;
+}
+
+.tempo-calendar .fc .fc-timegrid-slot-label-cushion,
+.tempo-calendar .fc .fc-timegrid-axis-cushion {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-muted-500, #667085);
+}
+
+/* ---- Month view ----------------------------------------------------------- */
+
+.tempo-calendar .fc .fc-daygrid-day-number {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text, #182230);
+}
+
+/* Today: filled indigo circle behind the date number. */
+.tempo-calendar .fc .fc-day-today .fc-daygrid-day-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: 4px;
+  padding: 0;
+  border-radius: 9999px;
+  background: var(--color-primary-500, #5b5bd6);
+  color: #ffffff;
+}
+
+.tempo-calendar .fc .fc-day-other .fc-daygrid-day-top {
+  opacity: 0.45;
+}
+
+.tempo-calendar .fc .fc-daygrid-more-link {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primary-600, #4a4ac4);
+}
+
+/* ---- Events --------------------------------------------------------------- */
+
+.tempo-calendar .fc .fc-event {
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 12px;
+}
+
+.tempo-calendar .fc .fc-event:hover {
+  filter: brightness(0.97);
+}
+
+/* Fixed events (meetings, imported calendars). */
+.tempo-calendar .fc .tempo-event--event {
+  --fc-event-bg-color: var(--color-success-100, #cbeada);
+  --fc-event-border-color: rgb(29 160 107 / 0.4);
+  --fc-event-text-color: var(--color-success-700, #116d48);
+}
+
+/* Work sessions placed by the scheduler. */
+.tempo-calendar .fc .tempo-event--session {
+  --fc-event-bg-color: var(--color-primary-50, #eeeefb);
+  --fc-event-border-color: var(--color-primary-200, #c3c0f0);
+  --fc-event-text-color: var(--color-primary-700, #3d3da6);
+}
+
+/* Locked sessions keep the session colours (colour = type); a stronger border + lock icon = state. */
+.tempo-calendar .fc .tempo-event--locked {
+  --fc-event-border-color: var(--color-primary-500, #5b5bd6);
+}
+
+/* Outcome of a session (set from the session dialog). */
+.tempo-calendar .fc .tempo-event--completed {
+  --fc-event-border-color: var(--color-success-500, #1da06b);
+}
+
+.tempo-calendar .fc .tempo-event--partial {
+  --fc-event-border-color: var(--color-warning-500, #d17e0e);
+}
+
+.tempo-calendar .fc .tempo-event--missed {
+  --fc-event-bg-color: #f9fafb;
+  --fc-event-border-color: var(--color-danger-500, #dc5c5c);
+  --fc-event-text-color: var(--color-muted-600, #52596b);
+  border-style: dashed;
+}
+
+/* Events open a dialog: make that obvious and keyboard-visible. */
+.tempo-calendar .fc .fc-event {
+  cursor: pointer;
+}
+
+.tempo-calendar .fc .fc-event:focus-visible {
+  outline: 2px solid var(--color-primary-500, #5b5bd6);
+  outline-offset: 1px;
+}
+
+/* ---- Popover ("+N more") -------------------------------------------------- */
+
+.tempo-calendar .fc .fc-popover {
+  overflow: hidden;
+  border-radius: 12px;
+  border-color: var(--fc-border-color);
+  box-shadow: 0 10px 25px rgb(0 0 0 / 0.1);
+}
+
+.tempo-calendar .fc .fc-popover-header {
+  background: #f9fafb;
+  font-size: 12px;
+  font-weight: 600;
+}
