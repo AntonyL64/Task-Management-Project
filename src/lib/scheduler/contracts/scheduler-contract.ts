@@ -48,6 +48,7 @@ export interface SchedulerSettings {
   maxSessionMinutes: number;   // e.g. 120 minutes
   bufferMinutes: number;       // Buffer applied before and after fixed busy intervals
   dailyMaxMinutes?: number;    // Maximum total planned work minutes per day (e.g. 480 mins = 8h)
+  timezoneOffsetMinutes?: number; // User timezone offset from UTC in minutes (e.g. +420 for UTC+7)
 }
 
 export interface PlannedSession {

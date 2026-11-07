@@ -59,11 +59,14 @@ export function applyBuffer(intervals: TimeInterval[], bufferMinutes: number): T
 
 /**
  * Generate working interval windows across the planning horizon starting from `now`.
+ * Supports optional timezoneOffsetMinutes (e.g. +420 for UTC+7) to convert user's
+ * local clock working hours into exact UTC epoch intervals without temporal drift.
  */
 export function generateWorkingIntervals(
   nowIso: string,
   horizonDays: number,
-  workingHours: WorkingHours[]
+  workingHours: WorkingHours[],
+  timezoneOffsetMinutes: number = 0
 ): TimeInterval[] {
   if (workingHours.length === 0) return [];
 
@@ -71,31 +74,35 @@ export function generateWorkingIntervals(
   const nowMs = nowDate.getTime();
   const intervals: TimeInterval[] = [];
 
-  // Start from the calendar date of `now` in UTC
-  const curDay = new Date(Date.UTC(
-    nowDate.getUTCFullYear(),
-    nowDate.getUTCMonth(),
-    nowDate.getUTCDate()
+  const offsetMs = timezoneOffsetMinutes * 60 * 1000;
+
+  // Start from the calendar date of `now` in user's local timeline
+  const localNowDate = new Date(nowMs + offsetMs);
+  const curLocalDayUtc = new Date(Date.UTC(
+    localNowDate.getUTCFullYear(),
+    localNowDate.getUTCMonth(),
+    localNowDate.getUTCDate()
   ));
 
   for (let dayOffset = 0; dayOffset < horizonDays; dayOffset++) {
-    const d = new Date(curDay.getTime() + dayOffset * 24 * 60 * 60 * 1000);
+    const d = new Date(curLocalDayUtc.getTime() + dayOffset * 24 * 60 * 60 * 1000);
     const dayOfWeek = d.getUTCDay(); // 0 = Sun, 1 = Mon, ...
 
-    const matchingWh = workingHours.filter(wh => wh.dayOfWeek === dayOfWeek);
+    const matchingWh = workingHours.filter((wh) => wh.dayOfWeek === dayOfWeek);
 
     for (const wh of matchingWh) {
       const [startH, startM] = wh.startTime.split(':').map(Number);
       const [endH, endM] = wh.endTime.split(':').map(Number);
 
-      const winStart = new Date(d);
-      winStart.setUTCHours(startH, startM, 0, 0);
+      const localWinStartMs = d.getTime() + (startH * 60 + startM) * 60 * 1000;
+      const localWinEndMs = d.getTime() + (endH * 60 + endM) * 60 * 1000;
 
-      const winEnd = new Date(d);
-      winEnd.setUTCHours(endH, endM, 0, 0);
+      // Translate back to absolute UTC epoch
+      const utcWinStartMs = localWinStartMs - offsetMs;
+      const utcWinEndMs = localWinEndMs - offsetMs;
 
-      const winStartMs = Math.max(nowMs, winStart.getTime());
-      const winEndMs = winEnd.getTime();
+      const winStartMs = Math.max(nowMs, utcWinStartMs);
+      const winEndMs = utcWinEndMs;
 
       if (winEndMs > winStartMs) {
         intervals.push({
