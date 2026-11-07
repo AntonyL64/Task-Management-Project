@@ -19,7 +19,8 @@ export default function Signup() {
     }
 
     setPasswordError('');
-    // Demo-only authentication flag. Do not store real credentials in localStorage.
+    // Mock signup logic — replace with real API call when the backend is ready.
+    // localStorage.setItem('accessToken', res.data.accessToken);
     localStorage.setItem('isAuthenticated', 'true');
     navigate('/tasks', { replace: true });
   }
