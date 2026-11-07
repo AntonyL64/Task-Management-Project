@@ -1,0 +1,355 @@
+// Thời gian lưu UTC; thời lượng là số nguyên phút.
+// CHECK, chống trùng giờ, kiểm tra cùng chủ sở hữu: migrations/*_constraints.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------ Người dùng --------------------------------
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  timezone     String   @default("Asia/Ho_Chi_Minh") // mã IANA
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workingHours     WorkingHours[]
+  dayExceptions    DayException[]
+  projects         Project[]
+  tasks            Task[]
+  taskDependencies TaskDependency[]
+  calendarEvents   CalendarEvent[]
+  workSessions     WorkSession[]
+  schedulerRuns    SchedulerRun[]
+  notifications    Notification[]
+  refreshTokens    RefreshToken[]
+  schedulerSetting SchedulerSetting?
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// Giờ làm hằng tuần; một ngày có thể có nhiều dòng (sáng, chiều).
+model WorkingHours {
+  id          String @id @default(uuid())
+  userId      String
+  weekday     Int // 0 = Chủ nhật … 6 = Thứ bảy
+  startMinute Int // phút từ 00:00 GIỜ ĐỊA PHƯƠNG
+  endMinute   Int
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, weekday])
+  @@map("working_hours")
+}
+
+/// Thay thế hoàn toàn giờ làm hằng tuần của một ngày: nghỉ, hoặc dùng slots.
+model DayException {
+  id       String   @id @default(uuid())
+  userId   String
+  date     DateTime @db.Date
+  isDayOff Boolean  @default(true)
+  note     String?
+
+  user  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slots DayExceptionSlot[]
+
+  @@unique([userId, date])
+  @@map("day_exceptions")
+}
+
+model DayExceptionSlot {
+  id          String @id @default(uuid())
+  exceptionId String
+  startMinute Int
+  endMinute   Int
+
+  exception DayException @relation(fields: [exceptionId], references: [id], onDelete: Cascade)
+
+  @@index([exceptionId])
+  @@map("day_exception_slots")
+}
+
+model SchedulerSetting {
+  userId              String  @id
+  minSessionMinutes   Int     @default(30)
+  maxSessionMinutes   Int     @default(120)
+  bufferMinutes       Int     @default(10)
+  planningHorizonDays Int     @default(28)
+  dailyMaxMinutes     Int? // null = không giới hạn
+  autoReschedule      Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("scheduler_settings")
+}
+
+// --------------------------- Dự án và công việc ---------------------------
+
+model Project {
+  id          String    @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  color       String    @default("#2F6FEB")
+  archivedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([userId])
+  @@map("projects")
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  PAUSED
+  DONE
+  CANCELLED
+}
+
+/// Tiến độ không lưu: tính từ estimatedMinutes và remainingMinutes.
+model Task {
+  id        String  @id @default(uuid())
+  userId    String
+  projectId String? // phải là dự án của cùng người dùng (ràng buộc SQL)
+
+  title       String
+  description String?
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(TODO)
+
+  deadline      DateTime?
+  earliestStart DateTime?
+
+  estimatedMinutes Int // ước tính ban đầu, không đổi
+  remainingMinutes Int // giảm dần khi phiên DONE/PARTIAL; task DONE thì = 0
+
+  completedAt DateTime?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  subtasks     Subtask[]
+  workSessions WorkSession[]
+  dependents   TaskDependency[] @relation("predecessor") // task đang chờ task này
+  dependencies TaskDependency[] @relation("successor") // task mà task này phải chờ
+
+  @@unique([id, userId]) // đích khoá ngoại ghép: chặn trỏ sang task người khác
+  @@index([userId, status])
+  @@index([userId, deadline])
+  @@map("tasks")
+}
+
+/// Checklist; không có hạn, thời lượng, không được xếp phiên riêng.
+model Subtask {
+  id        String   @id @default(uuid())
+  taskId    String
+  title     String
+  isDone    Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("subtasks")
+}
+
+/// Finish-to-Start: predecessor xong thì successor mới được bắt đầu.
+model TaskDependency {
+  id            String   @id @default(uuid())
+  userId        String
+  predecessorId String
+  successorId   String
+  createdAt     DateTime @default(now())
+
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  predecessor Task @relation("predecessor", fields: [predecessorId, userId], references: [id, userId], onDelete: Cascade)
+  successor   Task @relation("successor", fields: [successorId, userId], references: [id, userId], onDelete: Cascade)
+
+  @@unique([predecessorId, successorId])
+  @@index([successorId])
+  @@map("task_dependencies")
+}
+
+// ------------------------------- Lịch -------------------------------------
+
+enum EventSource {
+  INTERNAL
+  ICS
+  GOOGLE
+}
+
+/// Sự kiện cố định — bộ lập lịch không bao giờ di chuyển.
+/// Lặp: bản gốc có recurrenceRule. Huỷ một buổi: excludedDates.
+/// Dời một buổi: bản ghi override trỏ về bản gốc qua recurringEventId.
+model CalendarEvent {
+  id     String @id @default(uuid())
+  userId String
+
+  title   String
+  startAt DateTime
+  endAt   DateTime
+
+  recurrenceRule String? // RRULE (RFC 5545)
+  timezone       String? // múi giờ để bung RRULE; null = của người dùng
+  excludedDates  DateTime[] // giờ bắt đầu gốc (UTC) của các buổi bị huỷ
+
+  recurringEventId String?
+  originalStartAt  DateTime? // giờ bắt đầu gốc của buổi bị dời
+
+  source     EventSource @default(INTERNAL)
+  externalId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recurringEvent CalendarEvent?  @relation("EventOverride", fields: [recurringEventId], references: [id], onDelete: Cascade)
+  overrides      CalendarEvent[] @relation("EventOverride")
+
+  @@unique([recurringEventId, originalStartAt])
+  @@index([userId, startAt])
+  @@map("calendar_events")
+}
+
+// ----------------------- Lần chạy lập lịch và phiên -----------------------
+
+enum RunTrigger {
+  MANUAL
+  TASK_CHANGED
+  DEPENDENCY_CHANGED
+  EVENT_CHANGED
+  WORKING_HOURS_CHANGED
+  SETTINGS_CHANGED
+  SESSION_MISSED
+}
+
+enum RunStatus {
+  PREVIEW
+  APPLIED
+  DISCARDED
+  FAILED
+}
+
+model SchedulerRun {
+  id              String     @id @default(uuid())
+  userId          String
+  trigger         RunTrigger
+  status          RunStatus
+  contractVersion Int
+  input           Json
+  inputHash       String? // SHA-256 của input đã bỏ trường now
+  result          Json?
+  runtimeMs       Int?
+  errorMessage    String?
+  createdAt       DateTime   @default(now())
+  appliedAt       DateTime?
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions WorkSession[]
+
+  @@index([userId, createdAt])
+  @@map("scheduler_runs")
+}
+
+enum SessionStatus {
+  PLANNED
+  DONE
+  PARTIAL
+  MISSED
+}
+
+/// Khoá tách khỏi status: phiên đã khoá vẫn có thể DONE, PARTIAL, MISSED.
+model WorkSession {
+  id     String @id @default(uuid())
+  userId String
+  taskId String
+
+  startAt        DateTime
+  endAt          DateTime
+  plannedMinutes Int
+  actualMinutes  Int?
+
+  status   SessionStatus @default(PLANNED)
+  isLocked Boolean       @default(false)
+
+  schedulerRunId String? // null = người dùng tự tạo
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task         Task          @relation(fields: [taskId, userId], references: [id, userId], onDelete: Cascade)
+  schedulerRun SchedulerRun? @relation(fields: [schedulerRunId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startAt])
+  @@index([taskId])
+  @@index([schedulerRunId])
+  @@map("work_sessions")
+}
+
+// ------------------------------- Thông báo --------------------------------
+
+enum NotificationType {
+  SESSION_REMINDER
+  DEADLINE_APPROACHING
+  TASK_AT_RISK
+  SCHEDULE_UPDATED
+}
+
+model Notification {
+  id     String @id @default(uuid())
+  userId String
+
+  type    NotificationType
+  title   String
+  body    String
+  payload Json?
+
+  scheduledFor DateTime
+  sentAt       DateTime?
+  readAt       DateTime?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([scheduledFor, sentAt])
+  @@map("notifications")
+}
