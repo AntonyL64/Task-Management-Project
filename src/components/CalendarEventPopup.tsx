@@ -6,7 +6,7 @@ import type { CalendarTimeZone } from '../lib/sessionTime';
 import { useDialogA11y } from '../hooks/useDialogA11y';
 import '../styles/dialog.css';
 
-const SOURCE_LABEL: Record<NonNullable<CalendarEvent['source']>, string> = {
+const SOURCE_LABEL: Partial<Record<NonNullable<CalendarEvent['source']>, string>> = {
   INTERNAL: 'Created in Tempo',
   GOOGLE: 'Google Calendar',
   ICS: 'Imported calendar (ICS)',

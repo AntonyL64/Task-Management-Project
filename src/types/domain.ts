@@ -134,13 +134,24 @@ export interface Project {
  * A block of work the scheduler placed on the calendar (an entry of
  * ScheduleResult.plannedSessions[]).
  */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  startAt: ISODateString;
+  endAt: ISODateString;
+  source?: 'INTERNAL' | 'GOOGLE' | 'ICS' | 'OUTLOOK' | 'LOCAL';
+  isHardBusy?: boolean;
+}
+
 export interface WorkSession {
   id: string;
   taskId: string;
   /** Denormalised from the task so the calendar can render without a lookup. */
   taskTitle: string;
-  start: ISODateString;
-  end: ISODateString;
+  start?: ISODateString;
+  end?: ISODateString;
+  startAt: ISODateString;
+  endAt: ISODateString;
   /**
    * `true` = the user pinned this session. Rescheduling must keep its
    * start/end unchanged (INV-04) and it still counts toward the task's work.

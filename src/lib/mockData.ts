@@ -260,7 +260,7 @@ function session(
   end: ISODateString,
   isLocked = false
 ): WorkSession {
-  return { id, taskId, taskTitle: requireTask(taskId).title, start, end, isLocked };
+  return { id, taskId, taskTitle: requireTask(taskId).title, start, end, startAt: start, endAt: end, isLocked };
 }
 
 /**
