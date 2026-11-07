@@ -45,11 +45,12 @@ export function schedule(input: ScheduleInput): ScheduleResult {
   // 3c. Combined blocked intervals
   const blockedIntervals = mergeIntervals([...bufferedBusy, ...lockedIntervals]);
 
-  // Step 4: Generate Working Hours Windows
+  // Step 4: Generate Working Hours Windows (timezone-aware)
   const workingIntervals = generateWorkingIntervals(
     input.now,
     input.settings.planningHorizonDays,
-    input.workingHours
+    input.workingHours,
+    input.settings.timezoneOffsetMinutes ?? 0
   );
 
   // Step 5: Subtract blocked time from working hours to obtain Free Slots

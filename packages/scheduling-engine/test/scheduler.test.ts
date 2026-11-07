@@ -208,4 +208,95 @@ describe('3. End-to-End Scheduling Pipeline (Chạy toàn diện theo Contract v
     const warn = result.warnings.find(w => w.code === 'PARTIALLY_SCHEDULED');
     expect(warn).toBeDefined();
   });
+
+  it('phải lập lịch chuẩn xác với múi giờ địa phương (Timezone Offset Conversion e.g. UTC+7 Vietnam)', () => {
+    // Thứ Hai 08:30 - 17:30 ở Việt Nam (UTC+7, offset = +420 phút)
+    // Giờ tương ứng trong UTC là 01:30 - 10:30 UTC
+    const input: ScheduleInput = {
+      now: '2026-10-19T00:00:00Z',
+      settings: {
+        planningHorizonDays: 1,
+        minSessionMinutes: 30,
+        maxSessionMinutes: 120,
+        bufferMinutes: 0,
+        timezoneOffsetMinutes: 420, // UTC+7
+      },
+      workingHours: [
+        { dayOfWeek: 1, startTime: '08:30', endTime: '17:30' },
+      ],
+      busyIntervals: [],
+      lockedSessions: [],
+      tasks: [
+        {
+          id: 'VN-TASK-1',
+          title: 'Họp sáng tại Hà Nội',
+          estimatedMinutes: 60,
+          remainingMinutes: 60,
+          priority: 'HIGH',
+          status: 'TODO',
+          dependencyIds: [],
+        },
+      ],
+    };
+
+    const result = schedule(input);
+    expect(result.plannedSessions).toHaveLength(1);
+    // Bắt đầu 08:30 UTC+7 chính là 01:30 UTC
+    expect(result.plannedSessions[0].start).toBe('2026-10-19T01:30:00.000Z');
+    expect(result.plannedSessions[0].end).toBe('2026-10-19T02:30:00.000Z');
+  });
+
+  it('phải giải quyết chuỗi phụ thuộc DAG đa tầng theo thứ tự Kahn tối ưu', () => {
+    // Chuỗi DAG: T1 -> T2 -> T3, trong đó T3 có Priority URGENT nhưng phải đợi T1 và T2 hoàn thành trước
+    const input: ScheduleInput = {
+      now: '2026-10-19T08:00:00Z',
+      settings: {
+        planningHorizonDays: 3,
+        minSessionMinutes: 60,
+        maxSessionMinutes: 120,
+        bufferMinutes: 0,
+      },
+      workingHours: [
+        { dayOfWeek: 1, startTime: '09:00', endTime: '17:00' },
+      ],
+      busyIntervals: [],
+      lockedSessions: [],
+      tasks: [
+        {
+          id: 'T3-URGENT',
+          title: 'Báo cáo khẩn',
+          estimatedMinutes: 60,
+          remainingMinutes: 60,
+          priority: 'URGENT',
+          status: 'TODO',
+          dependencyIds: ['T2-PREP'],
+        },
+        {
+          id: 'T1-ROOT',
+          title: 'Thu thập dữ liệu',
+          estimatedMinutes: 60,
+          remainingMinutes: 60,
+          priority: 'LOW',
+          status: 'TODO',
+          dependencyIds: [],
+        },
+        {
+          id: 'T2-PREP',
+          title: 'Tiền xử lý',
+          estimatedMinutes: 60,
+          remainingMinutes: 60,
+          priority: 'MEDIUM',
+          status: 'TODO',
+          dependencyIds: ['T1-ROOT'],
+        },
+      ],
+    };
+
+    const result = schedule(input);
+    expect(result.plannedSessions).toHaveLength(3);
+    // Thứ tự phân bổ phải tuyệt đối tuân thủ DAG: T1 trước, rồi T2, rồi mới tới T3
+    expect(result.plannedSessions[0].taskId).toBe('T1-ROOT');
+    expect(result.plannedSessions[1].taskId).toBe('T2-PREP');
+    expect(result.plannedSessions[2].taskId).toBe('T3-URGENT');
+  });
 });
