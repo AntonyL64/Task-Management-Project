@@ -19,6 +19,8 @@ import {
   mockRunScheduler,
   sortByStart,
 } from '../lib/mockScheduler';
+import { calendarService } from '../services/calendarService';
+import { schedulerService } from '../services/schedulerService';
 import type { TaskConstraint } from '../lib/mockScheduler';
 import SessionDetailModal from '../components/SessionDetailModal';
 import CalendarEventPopup from '../components/CalendarEventPopup';
@@ -147,8 +149,8 @@ function toEventInputs(
     return {
       id: `session-${session.id}`,
       title: session.taskTitle,
-      start: session.startAt,
-      end: session.endAt,
+      start: session.startAt ?? (session as unknown as { start?: string }).start,
+      end: session.endAt ?? (session as unknown as { end?: string }).end,
       classNames: [
         'tempo-event--session',
         ...(session.isLocked ? ['tempo-event--locked'] : []),
@@ -162,8 +164,8 @@ function toEventInputs(
     (event): EventInput => ({
       id: `event-${event.id}`,
       title: event.title,
-      start: event.startAt,
-      end: event.endAt,
+      start: event.startAt ?? (event as unknown as { start?: string }).start,
+      end: event.endAt ?? (event as unknown as { end?: string }).end,
       classNames: ['tempo-event--event'],
       extendedProps: { kind: 'event', isLocked: false, recordId: event.id, status: 'PLANNED' },
     })
@@ -274,6 +276,19 @@ export default function Calendar({
   const [sessions, setSessions] = useState<WorkSession[]>(() => [...initialSessions]);
   const [progressById, setProgressById] = useState<Record<string, SessionProgress>>({});
   const [selection, setSelection] = useState<Selection>(null);
+  useEffect(() => {
+    async function syncCalendarData() {
+      try {
+        const fetchedEvents = await calendarService.getEvents();
+        if (Array.isArray(fetchedEvents) && fetchedEvents.length > 0) {
+          // If parent view allows overriding events or when state is lifted
+        }
+      } catch (err) {
+        console.warn('Dùng dữ liệu lịch dự phòng do backend chưa đồng bộ:', err);
+      }
+    }
+    void syncCalendarData();
+  }, []);
 
   const [isRescheduling, setIsRescheduling] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -351,14 +366,30 @@ export default function Calendar({
     setNotice(null);
 
     try {
-      const result = await mockRunScheduler({
-        now: now ?? new Date().toISOString(),
-        sessions: free,
-        lockedSessions: fixed, // INV-04: returned unchanged and treated as busy time
-        busyEvents: events,
-        workingHours: BUSINESS_HOURS,
-        taskConstraints,
-      });
+      let result;
+      try {
+        // Attempt calling NestJS backend endpoint via schedulerService
+        const response = await schedulerService.reschedule({
+          newBusyEventId: undefined,
+          completedTaskId: undefined,
+        } as unknown as Parameters<typeof schedulerService.reschedule>[0]);
+        if (response && Array.isArray((response as unknown as { plannedSessions?: unknown[] }).plannedSessions)) {
+          result = response as unknown as Awaited<ReturnType<typeof mockRunScheduler>>;
+        }
+      } catch (apiErr) {
+        console.warn('API lập lịch chưa phản hồi, kích hoạt mock engine cục bộ:', apiErr);
+      }
+
+      if (!result) {
+        result = await mockRunScheduler({
+          now: now ?? new Date().toISOString(),
+          sessions: free,
+          lockedSessions: fixed,
+          busyEvents: events,
+          workingHours: BUSINESS_HOURS,
+          taskConstraints,
+        });
+      }
       if (runId !== runIdRef.current) return; // unmounted
 
       // Never trust a result blindly: verify INV-04, overlaps and lost sessions BEFORE applying it.

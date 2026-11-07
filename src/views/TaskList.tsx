@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, CalendarClock, Check, CheckCircle2, ChevronDown, Link2, Plus, Search, Sparkles, X } from 'lucide-react';
 import { mockTasks, mockWarnings, projects } from '../lib/mockData';
+import { taskService } from '../services/taskService';
+import { schedulerService } from '../services/schedulerService';
 import { mockRunScheduler, type ScheduleResult } from '../lib/mockScheduler';
 import type { MockTask } from '../lib/mockData';
 import type { ISODateString, Priority, Project, TaskInput, TaskStatus } from '../types/domain';
@@ -58,13 +60,33 @@ export default function TaskList() {
 
   const handleCreateTask = (newTask: TaskInput, projectId: string) => setTasks((previous) => [{ ...newTask, projectId }, ...previous]);
 
+  useEffect(() => {
+    async function loadTasks() {
+      try {
+        const data = await taskService.getTasks();
+        if (data && data.length > 0) {
+          setTasks(data as MockTask[]);
+        }
+      } catch (err) {
+        console.warn('Backend chưa sẵn sàng, sử dụng dữ liệu mẫu Task:', err);
+      }
+    }
+    loadTasks();
+  }, []);
   const handleAutoSchedule = async () => {
     if (isScheduling) return;
     setIsScheduling(true);
     setScheduleResult(null);
     try {
-      // Simulate the network/engine round-trip until the real API is connected.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 1200));
+      // Call the backend API to run the auto-scheduler (Member A)
+      const result = await schedulerService.autoSchedule({
+        planningHorizonDays: 14,
+        dailyMaxMinutes: 360,
+      } as unknown as Parameters<typeof schedulerService.autoSchedule>[0]);
+      setScheduleResult(result as unknown as ScheduleResult);
+    } catch (err) {
+      console.warn('API lập lịch chưa phản hồi, kích hoạt mock engine cục bộ:', err);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 800));
       setScheduleResult(mockRunScheduler(tasks));
     } finally {
       setIsScheduling(false);

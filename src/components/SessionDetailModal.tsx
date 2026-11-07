@@ -137,7 +137,11 @@ export default function SessionDetailModal({
   const [draft, setDraft] = useState<Draft>(() => draftFromProgress(progress));
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  const plannedMinutes = useMemo(() => minutesBetween(session.startAt, session.endAt), [session.startAt, session.endAt]);
+  // const plannedMinutes = useMemo(() => minutesBetween(session.startAt, session.endAt), [session.startAt, session.endAt]);
+  const startIso = session.startAt ?? (session as unknown as { start?: string }).start ?? '';
+  const endIso = session.endAt ?? (session as unknown as { end?: string }).end ?? '';
+  const plannedMinutes = useMemo(() => minutesBetween(startIso, endIso), [startIso, endIso]);
+
   const resolved = resolveDraft(draft, plannedMinutes);
   const isDirty =
     resolved.progress !== null &&
@@ -228,12 +232,12 @@ export default function SessionDetailModal({
           <section aria-label="Session time" className="space-y-2">
             <div className="flex items-center gap-2.5 text-sm text-muted-600">
               <Calendar className="w-4 h-4 text-gray-400" aria-hidden="true" />
-              {formatDay(session.startAt, timeZone)}
+              {formatDay(startIso, timeZone)}
             </div>
             <div className="flex items-center gap-2.5 text-sm font-medium text-text">
               <Clock className="w-4 h-4 text-gray-400" aria-hidden="true" />
               <span>
-                {formatTimeRange(session.startAt, session.endAt, timeZone)} ({formatMinutesShort(plannedMinutes)})
+                {formatTimeRange(startIso, endIso, timeZone)} ({formatMinutesShort(plannedMinutes)})
               </span>
             </div>
           </section>
