@@ -58,7 +58,35 @@ export default function TaskList() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleCreateTask = (newTask: TaskInput, projectId: string) => setTasks((previous) => [{ ...newTask, projectId }, ...previous]);
+  const handleCreateTask = async (newTask: TaskInput, projectId: string) => {
+    // Validate projectId format (UUID) before sending to backend
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projectId);
+
+    try {
+      const created = await taskService.createTask({
+        title: newTask.title,
+        estimatedMinutes: newTask.estimatedMinutes,
+        priority: newTask.priority,
+        deadline: newTask.deadline ?? undefined,
+        dependencyIds: newTask.dependencyIds ?? [],
+        // Only include projectId if it's a valid UUID; otherwise, omit it to avoid backend errors
+        projectId: isUuid ? projectId : undefined,
+      } as unknown as Parameters<typeof taskService.createTask>[0]);
+
+      setTasks((previous) => [
+        {
+          ...newTask,
+          ...(created as unknown as Partial<MockTask>),
+          id: (created as unknown as { id?: string })?.id ?? newTask.id,
+          projectId,
+        },
+        ...previous,
+      ]);
+    } catch (err) {
+      console.warn('Lỗi tạo task lên backend, lưu tạm cục bộ:', err);
+      setTasks((previous) => [{ ...newTask, projectId }, ...previous]);
+    }
+  };
 
   useEffect(() => {
     async function loadTasks() {
@@ -92,12 +120,22 @@ export default function TaskList() {
       setIsScheduling(false);
     }
   };
-  const updateStatus = (taskId: string, status: TaskStatus) => {
+  const updateStatus = async (taskId: string, status: TaskStatus) => {
     setTasks((previous) => previous.map((task) => task.id === taskId ? { ...task, status, remainingMinutes: status === 'DONE' ? 0 : task.remainingMinutes } : task));
+    try {
+      await taskService.updateTask(taskId, { status } as unknown as Parameters<typeof taskService.updateTask>[1]);
+    } catch (err) {
+      console.warn('Lỗi cập nhật trạng thái task lên backend:', err);
+    }
   };
-  const deleteTask = (taskId: string) => {
+  const deleteTask = async (taskId: string) => {
     setTasks((previous) => previous.filter((task) => task.id !== taskId));
     setSelectedTaskId(null);
+    try {
+      await taskService.deleteTask(taskId);
+    } catch (err) {
+      console.warn('Lỗi xóa task trên backend:', err);
+    }
   };
   const headerCell = 'px-4 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-500';
   const filters: { id: Filter; label: string }[] = [{ id: 'ALL', label: 'All' }, { id: 'TODO', label: 'To Do' }, { id: 'IN_PROGRESS', label: 'In Progress' }, { id: 'DONE', label: 'Done' }];

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Clock } from 'lucide-react';
+import apiClient from '../services/apiClient';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -9,8 +10,10 @@ export default function Signup() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     if (password !== confirmPassword) {
@@ -19,10 +22,32 @@ export default function Signup() {
     }
 
     setPasswordError('');
-    // Mock signup logic — replace with real API call when the backend is ready.
-    // localStorage.setItem('accessToken', res.data.accessToken);
-    localStorage.setItem('isAuthenticated', 'true');
-    navigate('/tasks', { replace: true });
+    setApiError(null);
+    setIsLoading(true);
+
+    try {
+      const response = await apiClient.post('/auth/register', {
+        displayName: name,
+        email,
+        password,
+      });
+
+      const token = response.data?.accessToken || response.data?.token;
+
+      if (token) {
+        localStorage.setItem('accessToken', token);
+        localStorage.setItem('isAuthenticated', 'true');
+        navigate('/tasks', { replace: true });
+      } else {
+        navigate('/login', { replace: true });
+      }
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { message?: string | string[] } } };
+      const msg = errorObj.response?.data?.message;
+      setApiError(Array.isArray(msg) ? msg[0] : (msg || 'Registration failed. Please try again.'));
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -49,6 +74,12 @@ export default function Signup() {
 
         <h1 className="text-2xl font-semibold text-text text-center">Create your account</h1>
         <p className="text-sm text-muted-500 text-center mt-1 mb-6">Start planning calmer, more focused days.</p>
+
+        {apiError && (
+          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600">
+            {apiError}
+          </div>
+        )}
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div>
@@ -132,9 +163,10 @@ export default function Signup() {
 
           <button
             type="submit"
-            className="w-full bg-primary-500 hover:bg-primary-600 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm mt-1"
+            disabled={isLoading}
+            className="w-full bg-primary-500 hover:bg-primary-600 disabled:opacity-60 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm mt-1 cursor-pointer disabled:cursor-not-allowed"
           >
-            Sign up
+            {isLoading ? 'Creating account...' : 'Sign up'}
           </button>
         </form>
 

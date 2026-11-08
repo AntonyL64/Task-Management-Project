@@ -253,18 +253,36 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
-apiClient.interceptors.response.use(
-  (response) => {
-    isUnauthorizedHandled = false; // the session works again
-    return response;
-  },
-  (error: unknown) => {
-    if (axios.isCancel(error)) return Promise.reject(error);
+// apiClient.interceptors.response.use(
+//   (response) => {
+//     isUnauthorizedHandled = false; // the session works again
+//     return response;
+//   },
+//   (error: unknown) => {
+//     if (axios.isCancel(error)) return Promise.reject(error);
 
-    const apiError = toApiError(error);
-    const url = axios.isAxiosError(error) ? error.config?.url : undefined;
-    if (apiError.status === 401 && !isCredentialsEndpoint(url)) handleUnauthorized();
-    return Promise.reject(apiError);
+//     const apiError = toApiError(error);
+//     const url = axios.isAxiosError(error) ? error.config?.url : undefined;
+//     if (apiError.status === 401 && !isCredentialsEndpoint(url)) handleUnauthorized();
+//     return Promise.reject(apiError);
+//   }
+// );
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Clear all authentication flags
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('isAuthenticated');
+
+      // Only redirect if not already on authentication pages
+      const currentPath = window.location.pathname;
+      if (currentPath !== '/login' && currentPath !== '/signup') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
   }
 );
 

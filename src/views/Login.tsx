@@ -1,18 +1,41 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, Clock } from 'lucide-react';
+import apiClient from '../services/apiClient';
 
 export default function Login() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // Mock login logic — replace with real API call when the backend is ready.
-    // localStorage.setItem('accessToken', res.data.accessToken);
-    localStorage.setItem('isAuthenticated', 'true');
-    navigate('/tasks', { replace: true });
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const response = await apiClient.post('/auth/login', {
+        email,
+        password,
+      });
+
+      const token = response.data?.accessToken || response.data?.token;
+
+      if (token) {
+        localStorage.setItem('accessToken', token);
+        localStorage.setItem('isAuthenticated', 'true');
+        navigate('/tasks', { replace: true });
+      } else {
+        setError('No access token received from server.');
+      }
+    } catch (err: unknown) {
+      const apiError = err as { response?: { data?: { message?: string } } };
+      setError(apiError.response?.data?.message || 'Invalid email or password.');
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -39,6 +62,12 @@ export default function Login() {
 
         <h1 className="text-2xl font-semibold text-text text-center">Welcome back</h1>
         <p className="text-sm text-muted-500 text-center mt-1 mb-6">Log in to plan and schedule your day.</p>
+
+        {error && (
+          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-600">
+            {error}
+          </div>
+        )}
 
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
           <div>
@@ -83,9 +112,10 @@ export default function Login() {
 
           <button
             type="submit"
-            className="w-full bg-primary-500 hover:bg-primary-600 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm mt-1"
+            disabled={isLoading}
+            className="w-full bg-primary-500 hover:bg-primary-600 disabled:opacity-60 text-white py-2.5 rounded-lg text-sm font-semibold transition-colors shadow-sm mt-1 cursor-pointer disabled:cursor-not-allowed"
           >
-            Log in
+            {isLoading ? 'Logging in...' : 'Log in'}
           </button>
         </form>
 

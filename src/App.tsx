@@ -12,8 +12,13 @@ import Progress from './views/Progress';
 import Settings from './views/Settings';
 
 // Mock auth check — replace with real session/token validation when the backend is ready.
+// export function isAuthenticated(): boolean {
+//   return localStorage.getItem('isAuthenticated') === 'true';
+// }
+
+// Real auth check: Requires both a valid accessToken and the isAuthenticated flag
 export function isAuthenticated(): boolean {
-  return localStorage.getItem('isAuthenticated') === 'true';
+  return Boolean(localStorage.getItem('accessToken')) && localStorage.getItem('isAuthenticated') === 'true';
 }
 
 function RequireAuth({ children }: { children: ReactNode }) {
