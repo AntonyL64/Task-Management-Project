@@ -15,7 +15,7 @@ pnpm db:seed                # dữ liệu mẫu
 pnpm start:dev              # http://localhost:3000/api
 ```
 
-Kiểm thử: `pnpm test:e2e` (26 test, chạy trên DB trong `.env`). Test tự tạo hai user email ngẫu nhiên rồi xoá khi xong, không đụng vào dữ liệu seed.
+Kiểm thử: `pnpm test:e2e` (38 test, chạy trên DB trong `.env`). Test tự tạo user email ngẫu nhiên rồi xoá khi xong, không đụng vào dữ liệu seed.
 
 **Tài khoản seed:** `demo@example.com` và `other@example.com`, mật khẩu đều là `Demo@12345`.
 
@@ -41,7 +41,10 @@ src/
   tasks/                      CRUD + dependencyIds + chặn vòng phụ thuộc
   calendar-events/            sự kiện cố định (thường, lặp RRULE, override)
   working-hours/              giờ làm theo tuần, dạng Contract v2
-test/app.e2e-spec.ts
+  scheduler/                  auto-schedule, reschedule, work-sessions
+    engine.ts                 cầu nối tới ../packages/scheduling-engine (engine của B)
+    recurrence.ts             bung sự kiện lặp RRULE theo múi giờ
+test/app.e2e-spec.ts, test/scheduler.e2e-spec.ts
 ```
 
 **Bảo mật mặc định:** mọi route đều cần `Authorization: Bearer <token>`. Route mở phải gắn `@Public()`; hiện chỉ có `register` và `login`. Module mới, ví dụ Scheduling của B, được bảo vệ sẵn mà không phải làm gì thêm. Lấy user bằng `@CurrentUser() user` → `{ id, email }`.
@@ -159,3 +162,35 @@ Quy tắc nghiệp vụ:
 - Các khung trong cùng một ngày không được chồng nhau.
 
 Mảng `workingHours` khớp đúng `ScheduleInput.workingHours` của Contract v2, trừ trường `id`.
+
+### Scheduler (dùng engine của Thành viên B)
+
+Server tự đọc tasks, sự kiện, giờ làm, phiên đã khoá và cấu hình của user từ DB rồi dựng `ScheduleInput` (Contract v2). **Client không gửi input.**
+
+| Method | Đường dẫn | Body (đều tuỳ chọn) |
+|---|---|---|
+| POST | `/api/scheduler/auto-schedule` | `{ planningHorizonDays?, minSessionMinutes?, maxSessionMinutes?, bufferMinutes?, dailyMaxMinutes? }`: chỉ áp dụng cho lần chạy này, mặc định lấy từ `scheduler_settings` |
+| POST | `/api/scheduler/reschedule` | `{ newBusyEventId?, completedTaskId?, mode?: 'MINIMAL_DISRUPTION' \| 'FULL_OPTIMIZATION' }` |
+| GET | `/api/work-sessions?from=&to=` | Phiên làm việc để vẽ Calendar (có `taskTitle`, `status`) |
+| PATCH | `/api/work-sessions/:id` | `{ isLocked: boolean }`: khoá hoặc mở khoá một phiên |
+
+Response của hai endpoint scheduler là `ScheduleResult` của Contract v2, cộng thêm `runId` và `runtimeMs`. `id` trong `plannedSessions` là **id thật trong bảng `work_sessions`**:
+```ts
+{ runId, runtimeMs, plannedSessions: [{ id, taskId, start, end, durationMinutes, locked }], unscheduledTasks, warnings }
+// reschedule có thêm: summary: { retained, moved, cancelled, added }
+```
+
+Cách lưu kết quả:
+- **auto-schedule:** xoá mọi phiên `PLANNED` **chưa khoá** chưa kết thúc rồi lưu kế hoạch mới. Phiên đã khoá giữ nguyên.
+- **reschedule (Minimum Disruption):**
+  - Chỉ dời các phiên va chạm với `newBusyEventId`; phiên khác giữ nguyên id và giờ.
+  - `completedTaskId` huỷ các phiên tương lai của task đó. Nên gọi `PATCH /api/tasks/:id {status:'DONE'}` trước.
+  - Sự kiện lặp ảnh hưởng nhiều tuần nên trả 400; trường hợp này dùng auto-schedule.
+- Mỗi lần chạy lưu một dòng `scheduler_runs` (input, inputHash, result, runtimeMs). Phiên mới gắn `schedulerRunId` của lần chạy đó.
+
+Ghi chú kỹ thuật:
+- **Múi giờ:** `users.timezone` được đổi thành `timezoneOffsetMinutes` (ví dụ +420) truyền cho engine.
+- **Sự kiện lặp:** được bung bằng `src/scheduler/recurrence.ts`, hỗ trợ DAILY/WEEKLY, INTERVAL, BYDAY, COUNT, UNTIL, `excludedDates` và override. Thứ trong tuần tính theo giờ địa phương.
+- **Chạy đồng thời:** mỗi lần lập lịch và mỗi lần đổi phụ thuộc đều khoá dòng `users` (`SELECT … FOR UPDATE`), nên các thao tác của cùng một user chạy lần lượt.
+- **Build:** backend import thẳng mã nguồn `packages/scheduling-engine`, nên file chạy nằm ở `dist/backend/src/main.js`.
+

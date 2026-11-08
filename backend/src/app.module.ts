@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { CalendarEventsModule } from './calendar-events/calendar-events.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
 import { TasksModule } from './tasks/tasks.module';
 import { WorkingHoursModule } from './working-hours/working-hours.module';
 
@@ -23,6 +24,7 @@ function validateEnv(env: Record<string, unknown>) {
     TasksModule,
     CalendarEventsModule,
     WorkingHoursModule,
+    SchedulerModule,
   ],
   providers: [
     // Bảo vệ mọi route bằng JWT; route mở phải gắn @Public().

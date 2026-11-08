@@ -202,6 +202,22 @@ describe('API tuần 8 — Thành viên A (e2e)', () => {
       expect(cleared.body.dependencyIds).toEqual([]);
     });
 
+    it('Hai request song song A→B và B→A: chỉ một cái thành công, không tạo vòng (race condition)', async () => {
+      for (let round = 0; round < 15; round++) {
+        const x = (await asA(http().post('/api/tasks')).send({ title: `race-x-${round}`, estimatedMinutes: 30 }).expect(201)).body.id;
+        const y = (await asA(http().post('/api/tasks')).send({ title: `race-y-${round}`, estimatedMinutes: 30 }).expect(201)).body.id;
+        const [r1, r2] = await Promise.all([
+          asA(http().patch(`/api/tasks/${x}`)).send({ dependencyIds: [y] }),
+          asA(http().patch(`/api/tasks/${y}`)).send({ dependencyIds: [x] }),
+        ]);
+        expect([r1.status, r2.status].sort()).toEqual([200, 400]);
+        const edges = await prisma.taskDependency.count({ where: { successorId: { in: [x, y] } } });
+        expect(edges).toBe(1);
+        await asA(http().delete(`/api/tasks/${x}`)).expect(204);
+        await asA(http().delete(`/api/tasks/${y}`)).expect(204);
+      }
+    });
+
     it('Người khác không đọc / sửa / xoá / phụ thuộc được task của A (404 hoặc 400)', async () => {
       await asB(http().get(`/api/tasks/${t1}`)).expect(404);
       await asB(http().patch(`/api/tasks/${t1}`)).send({ title: 'hack' }).expect(404);

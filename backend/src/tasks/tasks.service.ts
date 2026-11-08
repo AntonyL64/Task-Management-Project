@@ -140,6 +140,10 @@ export class TasksService {
     if (predecessorIds.includes(taskId)) {
       throw new BadRequestException('Task không thể phụ thuộc vào chính nó');
     }
+    // Khoá dòng của user cho đến hết transaction: các thay đổi phụ thuộc của cùng
+    // một user chạy lần lượt. Nếu không, hai request song song (A→B và B→A) đều
+    // thấy đồ thị chưa có vòng ở READ COMMITTED và cùng ghi, tạo ra vòng lặp.
+    await lockUserRow(tx, userId);
     if (predecessorIds.length) {
       const owned = await tx.task.findMany({
         where: { userId, id: { in: predecessorIds } },
@@ -168,6 +172,11 @@ export class TasksService {
 }
 
 // ---------------------------- hàm thuần ------------------------------------
+
+/** SELECT ... FOR UPDATE trên bảng "users" (tên bảng theo @@map, không phải "User"). */
+export async function lockUserRow(tx: Tx, userId: string): Promise<void> {
+  await tx.$queryRaw`SELECT "id" FROM "users" WHERE "id" = ${userId} FOR UPDATE`;
+}
 
 function toResponse(task: TaskWithDeps): TaskResponse {
   const { dependencies, ...rest } = task;
